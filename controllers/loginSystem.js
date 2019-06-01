@@ -2,6 +2,14 @@ const userModel =  require('../model/user');
 const invitationModel =  require('../model/invitation');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer')
+const passwordPolicy = require('password-policy');
+let Checker = require('password-checker');
+let checker = new Checker();
+
+checker.min_length = 8;
+checker.requireLetters(true);
+checker.requireNumbers(true);
+checker.requireSymbols(true);
 
 const registerUser = (req,res)=>{
 
@@ -116,6 +124,7 @@ const sendEmail = (emailVariables, callback)=>{
 
     const transporter = nodemailer.createTransport({
         host: "gmail.com",
+        port:465,
         auth: {
             user: "ian.d.rocha@gmail.com",
             pass: ""
@@ -147,7 +156,8 @@ const confirmUser = (req,res)=>{
         nonMatchingPasswords:false,
         userCreated:false,
         encryptionError:false,
-        noInvitation: false
+        noInvitation: false,
+        weakPassword:false
     }
     let user = req.body;
     user.email = user.email.toLowerCase();
@@ -168,26 +178,32 @@ const confirmUser = (req,res)=>{
 
                     if(user.code == invitation.validationCode){
                         if(user.password == user.passwordConfirm){
-                            crypto.scrypt(user.password.toString(),user.email,32,(err,hashPass)=>{
-                                if(err){
-                                    response.encryptionError = true;
-                                    res.status(400).send(response)
-                                }else{
-                                    hashPass = hashPass.toString('hex');
-                                    const newUser = new userModel({
-                                        name:user.name,
-                                        email:user.email,
-                                        password: hashPass
+                            if(checker.check(user.password)){
+                                    crypto.scrypt(user.password.toString(),user.email,32,(err,hashPass)=>{
+                                        if(err){
+                                            response.encryptionError = true;
+                                            res.status(400).send(response)
+                                        }else{
+                                            hashPass = hashPass.toString('hex');
+                                            const newUser = new userModel({
+                                                name:user.name,
+                                                email:user.email,
+                                                password: hashPass
+                                            })
+        
+                                            newUser.save();
+                                            invitationModel.deleteOne({email:user.email},(err,result)=>{
+                                                response.userCreated = true;
+                                                res.status(200).send(response)
+                                            })
+                                        }
+                                        
                                     })
+                            }else{
+                                response.weakPassword = true;
+                                res.status(400).send(response)
+                            }
 
-                                    newUser.save();
-                                    invitationModel.deleteOne({email:user.email},(err,result)=>{
-                                        response.userCreated = true;
-                                        res.status(200).send(response)
-                                    })
-                                }
-                                
-                            })
 
                             
                         }else{
@@ -228,7 +244,7 @@ const login = (req,res)=>{
                     response.queryError = true;
                     res.status(400).send(response);
                 }else if(userFound != null){
-                    res.redirect('/index').send(userFound.email);
+                    res.status(200).send("BEM VINDO AO SISTEMA");
                 }else{
                     userModel.findOne({email:user.email},(err,result)=>{
                         if(result){
